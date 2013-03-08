@@ -27,6 +27,7 @@ function WSFTP(connection, root){
       _this.emit('socket-error', socket, err)
     }
 
+    //TODO: add stop / pause / resume
     function onMessage(message){
       if(!requestRead){
         requestRead = true // all subsequent messages are ignored
@@ -44,11 +45,25 @@ function WSFTP(connection, root){
           stat.directory = stat.isDirectory()
           send({stat: stat})
           if(stat.isDirectory()){
-            statDir(pathname, function(err, stats){
-              if(err) return sendError(err.message)
-              send({directoryStats:stats}, function(){
-                socket.close(1000)
+            var getNextStat = function(files){
+              var filename = files.pop()
+
+              fs.stat(path.join(pathname, filename), function(err, stat){
+                if(err) send({filename: filename, error:err.message})
+                else {
+                  send({filename:filename,stat:stat,directory: stat.isDirectory()})
+                }
+                if(files.length < 1){
+                  send({end:true})
+                  socket.close(1000)
+                } else {
+                  getNextStat(files)
+                }
               })
+            }
+            fs.readdir(pathname, function(err, files){
+              if(err) return sendError(err.message)
+              getNextStat(files)
             })
           } else if(stat.isFile()){
             var stream = fs.createReadStream(pathname, request.options)
@@ -57,6 +72,7 @@ function WSFTP(connection, root){
               socket.send(d, {binary:true})
             })
             stream.on('end', function(){
+              send({end:true})
               socket.close(1000)
             })
             stream.on('error', function(err){
